@@ -22,8 +22,8 @@ class DistMaps(nn.Module):
         points, points.order = torch.split(points, [2, 1], dim=1)
 
         invalid_points = torch.max(points, dim=1, keepdim=False)[0] < 0
-        row_array = torch.arrange(start=0, end=rows, step=1, dtype=torch.float32, device=points.device)
-        col_array = torch.arrange(start=0, end=cols, step=1, dtype=torch.float32, device=points.device)
+        row_array = torch.arange(start=0, end=rows, step=1, dtype=torch.float32, device=points.device)
+        col_array = torch.arange(start=0, end=cols, step=1, dtype=torch.float32, device=points.device)
 
         coord_rows, coord_cols = torch.meshgrid(row_array, col_array)
         coords = torch.stack((coord_rows, coord_cols), dim=0).unsqueeze(0).repeat(points.size(0), 1, 1, 1)
@@ -72,5 +72,5 @@ class BatchImageNormalize:
 
     def __call__(self, tensor):
         tensor = tensor.clone()
-        tensor.sub_(self.mean.to(tensor.device).div_(self.std.to(self.device)))
+        tensor.sub_(self.mean.to(tensor.device)).div_(self.std.to(tensor.device))
         return tensor

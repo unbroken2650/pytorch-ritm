@@ -1,9 +1,9 @@
 import torch.nn as nn
 
-from utils.serialization import serialize
+from isegm.utils.serialization import serialize
 from .is_model import ISModel
 from .modeling.hrnet_ocr import HighResolutionNet
-from .modifiers import LRMult
+from isegm.model.modifiers import LRMult
 
 
 class HRNetModel(ISModel):
@@ -11,7 +11,7 @@ class HRNetModel(ISModel):
     def __init__(self, width=48, ocr_width=256, small=False, backbone_lr_mult=0.1, **kwargs):
         super().__init__(**kwargs)
 
-        self.feature_extractor = HighResolutionNet(width, ocr_width, small, num_classes=1)
+        self.feature_extractor = HighResolutionNet(width=width, ocr_width=ocr_width, small=small, num_classes=1)
 
         self.feature_extractor.apply(LRMult(backbone_lr_mult))
 

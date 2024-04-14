@@ -162,7 +162,7 @@ class HighResolutionNet(nn.Module):
         num_blocks = 2 if small else 4
 
         stage1_num_channels = 64
-        self.layer1 = self._make_layer(BottleNeckV1b, 64, stage1_num_channels, block=num_blocks)
+        self.layer1 = self._make_layer(BottleNeckV1b, 64, stage1_num_channels, num_blocks=num_blocks)
         stage1_out_channel = BottleNeckV1b.expansion * stage1_num_channels
 
         self.stage2_num_branches = 2
@@ -173,7 +173,7 @@ class HighResolutionNet(nn.Module):
             BasicBlockV1b, num_inchannels=num_inchannels, num_modules=1,
             num_branches=self.stage2_num_branches, num_blocks=2*[num_blocks], num_channels=num_channels)
 
-        self.stage3_num_branches = 2
+        self.stage3_num_branches = 3
         num_channels = [width, 2*width, 2*2*width]
         num_inchannels = [num_channels[i] * BasicBlockV1b.expansion for i in range(len(num_channels))]
         self.transition2 = self._make_transition_layer(pre_stage_channels, num_inchannels)
@@ -181,7 +181,7 @@ class HighResolutionNet(nn.Module):
             BasicBlockV1b, num_inchannels=num_inchannels, num_modules=3 if small else 4,
             num_branches=self.stage3_num_branches, num_blocks=3*[num_blocks], num_channels=num_channels)
 
-        self.stage4_num_branches = 2
+        self.stage4_num_branches = 4
         num_channels = [width, 2*width, 2*2*width, 2*2*2*width]
         num_inchannels = [num_channels[i] * BasicBlockV1b.expansion for i in range(len(num_channels))]
         self.transition3 = self._make_transition_layer(pre_stage_channels, num_inchannels)
@@ -351,28 +351,21 @@ class HighResolutionNet(nn.Module):
             return [self.cls_head(feats), None]
 
 
-def get_model(cfg, **kwargs):
-    model = HighResolutionNet(cfg, **kwargs)
-    # model.init_weights(cfg.MODEL.PRETRAINED)
+    def load_pretrained_weights(self, pretrained_path=''):
+        model_dict = self.state_dict()
 
-    return model
+        if not os.path.exists(pretrained_path):
+            print(f'\nFile "{pretrained_path}" does not exist.')
+            print('You need to specify the correct path to the pre-trained weights.\n'
+                'You can download the weights for HRNet from the repository:\n'
+                'https://github.com/HRNet/HRNet-Image-Classification')
+            exit(1)
+        pretrained_dict = torch.load(pretrained_path, map_location={'cuda:0': 'cpu'})
+        pretrained_dict = {k.replace('last_layer', 'aux_head').replace('model.', ''): v for k, v in
+                        pretrained_dict.items()}
 
+        pretrained_dict = {k: v for k, v in pretrained_dict.items()
+                        if k in model_dict.keys()}
 
-def load_pretrained_weights(self, pretrained_path=''):
-    model_dict = self.state_dict()
-
-    if not os.path.exists(pretrained_path):
-        print(f'\nFile "{pretrained_path}" does not exist.')
-        print('You need to specify the correct path to the pre-trained weights.\n'
-              'You can download the weights for HRNet from the repository:\n'
-              'https://github.com/HRNet/HRNet-Image-Classification')
-        exit(1)
-    pretrained_dict = torch.load(pretrained_path, map_location={'cuda:0': 'cpu'})
-    pretrained_dict = {k.replace('last_layer', 'aux_head').replace('model.', ''): v for k, v in
-                       pretrained_dict.items()}
-
-    pretrained_dict = {k: v for k, v in pretrained_dict.items()
-                       if k in model_dict.keys()}
-
-    model_dict.update(pretrained_dict)
-    self.load_state_dict(model_dict)
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)

@@ -99,6 +99,8 @@ class ISModel(nn.Module):
             coord_features = self.dist_maps(image, points)
 
         if prev_mask is not None:
+            if coord_features is None:
+                coord_features = torch.zeros_like(image)
             coord_features = torch.cat((prev_mask, coord_features), dim=1)
 
         return coord_features
