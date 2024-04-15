@@ -8,11 +8,12 @@ from isegm.data.sample import DSample
 
 
 class CocoDataset(ISDataset):
-    def __init__(self, dataset_path, split='train', stuff_prob=0.0, **kwargs):
+    def __init__(self, dataset_path, split='train', stuff_prob=0.0, max_samples=None, ** kwargs):
         super(CocoDataset, self).__init__(**kwargs)
         self.split = split
         self.dataset_path = Path(dataset_path)
         self.stuff_prob = stuff_prob
+        self.max_samples = max_samples
 
         self.load_samples()
 
@@ -29,6 +30,9 @@ class CocoDataset(ISDataset):
         self._things_labels = [x['id'] for x in self._categories if x['isthing'] == 1]
         self._things_labels_set = set(self._things_labels)
         self._stuff_labels_set = set(self._stuff_labels)
+        
+        if self.max_samples is not None and self.max_samples < len(self.dataset_samples):
+            self.dataset_samples = random.sample(self.dataset_samples, self.max_samples)
 
     def get_sample(self, index) -> DSample:
         dataset_sample = self.dataset_samples[index]

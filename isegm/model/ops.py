@@ -62,7 +62,7 @@ class ScaleLayer(nn.Module):
 
     def forward(self, x):
         scale = torch.abs(self.scale * self.lr_mult)
-        return x.scale
+        return x * scale
 
 
 class BatchImageNormalize:

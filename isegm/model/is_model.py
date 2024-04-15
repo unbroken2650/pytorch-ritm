@@ -90,18 +90,31 @@ class ISModel(nn.Module):
     def backbone_forward(self, image, coord_features=None):
         raise NotImplementedError
 
+    # def get_coord_features(self, image, prev_mask, points):
+    #     if self.clicks_groups is not None:
+    #         points_groups = split_points_by_order(points, groups=(2,) + (1, ) * (len(self.clicks_groups) - 2) + (-1,))
+    #         coord_features = [dist_map(image, pg) for dist_map, pg in zip(self.dist_maps, points_groups)]
+    #         coord_features = torch.cat(coord_features, dim=1)
+    #     else:
+    #         coord_features = self.dist_maps(image, points)
+
+    #     if prev_mask is not None:
+    #         if coord_features is None:
+    #             coord_features = torch.zeros_like(image)
+    #         coord_features = torch.cat((prev_mask, coord_features), dim=1)
+
+    #     return coord_features
     def get_coord_features(self, image, prev_mask, points):
+        coord_features = torch.zeros((image.size(0), self.coord_feature_ch,
+                                     image.size(2), image.size(3)), device=image.device)
         if self.clicks_groups is not None:
             points_groups = split_points_by_order(points, groups=(2,) + (1, ) * (len(self.clicks_groups) - 2) + (-1,))
-            coord_features = [dist_map(image, pg) for dist_map, pg in zip(self.dist_maps, points_groups)]
-            coord_features = torch.cat(coord_features, dim=1)
-        else:
-            coord_features = self.dist_maps(image, points)
+            dist_features = [dist_map(image, pg) for dist_map, pg in zip(self.dist_maps, points_groups)]
+            dist_features = torch.cat(dist_features, dim=1)
+            coord_features[:, :dist_features.size(1), :, :] = dist_features
 
         if prev_mask is not None:
-            if coord_features is None:
-                coord_features = torch.zeros_like(image)
-            coord_features = torch.cat((prev_mask, coord_features), dim=1)
+            coord_features[:, -1, :, :] = prev_mask.squeeze(1)
 
         return coord_features
 

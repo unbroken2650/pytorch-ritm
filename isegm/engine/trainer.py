@@ -91,7 +91,7 @@ class ISTrainer(object):
                                                     output_device=cfg.gpu_ids[0])
 
         if self.is_master:
-            logger.info(model)
+            # logger.info(model)
             logger.info(get_config_repr(model._config))
 
         self.device = cfg.device
@@ -121,8 +121,10 @@ class ISTrainer(object):
         logger.info(f'Total Epochs: {num_epochs}')
         for epoch in range(start_epoch, num_epochs):
             self.training(epoch)
+            logger.info(f'Epoch {epoch} train Done')
             if validation:
                 self.validation(epoch)
+            logger.info(f'Epoch {epoch} validation Done')
 
     def training(self, epoch):
         if self.sw is None and self.is_master:
@@ -144,8 +146,7 @@ class ISTrainer(object):
         for i, batch_data in enumerate(tbar):
             global_step = epoch * len(self.train_data) + i
 
-            loss, losses_logging, splitted_batch_data, outputs = \
-                self.batch_forward(batch_data)
+            loss, losses_logging, splitted_batch_data, outputs = self.batch_forward(batch_data)
 
             self.optim.zero_grad()
             loss.backward()
@@ -170,7 +171,8 @@ class ISTrainer(object):
                     self.save_visualization(splitted_batch_data, outputs, global_step, prefix='train')
 
                 self.sw.add_scalar(tag=f'{log_prefix}States/learning_rate',
-                                   value=self.lr if not hasattr(self, 'lr_scheduler') else self.lr_scheduler.get_lr()[-1],
+                                   value=self.lr if not hasattr(
+                                       self, 'lr_scheduler') else self.lr_scheduler.get_lr()[-1],
                                    global_step=global_step)
 
                 tbar.set_description(f'Epoch {epoch}, training loss {train_loss/(i+1):.4f}')
