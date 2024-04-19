@@ -20,10 +20,9 @@ class SpatialGather_Module(nn.Module):
         batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
         probs = probs.view(batch_size, c, -1)
         feats = feats.view(batch_size, feats.size(1), -1)
-        feats = feats.permute(0, 2, 1)  # batch x hw x c
-        probs = F.softmax(self.scale * probs, dim=2)  # batch x k x hw
-        ocr_context = torch.matmul(probs, feats) \
-            .permute(0, 2, 1).unsqueeze(3)  # batch x k x c
+        feats = feats.permute(0, 2, 1)
+        probs = F.softmax(self.scale * probs, dim=2)
+        ocr_context = torch.matmul(probs, feats).permute(0, 2, 1).unsqueeze(3)
         return ocr_context
 
 
@@ -129,7 +128,6 @@ class ObjectAttentionBlock2D(nn.Module):
         sim_map = (self.key_channels ** -.5) * sim_map
         sim_map = F.softmax(sim_map, dim=-1)
 
-        # add bg context ...
         context = torch.matmul(sim_map, value)
         context = context.permute(0, 2, 1).contiguous()
         context = context.view(batch_size, self.key_channels, *x.size()[2:])

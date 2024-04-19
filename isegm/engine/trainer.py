@@ -20,21 +20,11 @@ from .optimizer import get_optimizer
 
 class ISTrainer(object):
     def __init__(self, model, cfg, model_cfg, loss_cfg,
-                 trainset, valset,
-                 optimizer='adam',
-                 optimizer_params=None,
-                 image_dump_interval=200,
-                 checkpoint_interval=10,
-                 tb_dump_period=25,
-                 max_interactive_points=0,
-                 lr_scheduler=None,
-                 metrics=None,
-                 additional_val_metrics=None,
-                 net_inputs=('images', 'points'),
-                 max_num_next_clicks=0,
-                 click_models=None,
-                 prev_mask_drop_prob=0.0,
-                 ):
+                 trainset, valset, optimizer='adam',
+                 optimizer_params=None, image_dump_interval=200, checkpoint_interval=10,
+                 tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
+                 metrics=None, additional_val_metrics=None, net_inputs=('images', 'points'),
+                 max_num_next_clicks=0, click_models=None, prev_mask_drop_prob=0.0,):
         self.cfg = cfg
         self.model_cfg = model_cfg
         self.max_interactive_points = max_interactive_points
@@ -46,10 +36,6 @@ class ISTrainer(object):
 
         self.click_models = click_models
         self.prev_mask_drop_prob = prev_mask_drop_prob
-
-        if cfg.distributed:
-            cfg.batch_size //= cfg.ngpus
-            cfg.val_batch_size //= cfg.ngpus
 
         if metrics is None:
             metrics = []
@@ -70,29 +56,19 @@ class ISTrainer(object):
         logger.info(f'Dataset of {valset.get_samples_number()} samples was loaded for validation.')
 
         self.train_data = DataLoader(
-            trainset, cfg.batch_size,
-            sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True,
-            num_workers=cfg.workers
+            trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
+            drop_last=True, pin_memory=True, num_workers=cfg.workers
         )
 
         self.val_data = DataLoader(
-            valset, cfg.val_batch_size,
-            sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True,
-            num_workers=cfg.workers
+            valset, cfg.val_batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
+            drop_last=True, pin_memory=True, num_workers=cfg.workers*2
         )
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
         model = self._load_weights(model)
 
-        if cfg.multi_gpu:
-            model = get_dp_wrapper(cfg.distributed)(model, device_ids=cfg.gpu_ids,
-                                                    output_device=cfg.gpu_ids[0])
-
-        if self.is_master:
-            # logger.info(model)
-            logger.info(get_config_repr(model._config))
+        logger.info(get_config_repr(model._config))
 
         self.device = cfg.device
         self.net = model.to(self.device)
@@ -120,11 +96,13 @@ class ISTrainer(object):
         logger.info(f'Starting Epoch: {start_epoch}')
         logger.info(f'Total Epochs: {num_epochs}')
         for epoch in range(start_epoch, num_epochs):
+            logger.info(f'Epoch {epoch}/{num_epochs} train Start')
             self.training(epoch)
-            logger.info(f'Epoch {epoch} train Done')
+            logger.info(f'Epoch {epoch}/{num_epochs} train Done')
             if validation:
+                logger.info(f'Epoch {epoch}/{num_epochs} validation Start')
                 self.validation(epoch)
-            logger.info(f'Epoch {epoch} validation Done')
+                logger.info(f'Epoch {epoch}/{num_epochs} validation Done')
 
     def training(self, epoch):
         if self.sw is None and self.is_master:
@@ -135,8 +113,7 @@ class ISTrainer(object):
             self.train_data.sampler.set_epoch(epoch)
 
         log_prefix = 'Train' + self.task_prefix.capitalize()
-        tbar = tqdm(self.train_data, file=self.tqdm_out, ncols=100)\
-            if self.is_master else self.train_data
+        tbar = tqdm(self.train_data, file=self.tqdm_out, ncols=100) if self.is_master else self.train_data
 
         for metric in self.train_metrics:
             metric.reset_epoch_stats()

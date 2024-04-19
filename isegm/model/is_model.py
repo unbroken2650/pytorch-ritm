@@ -26,6 +26,7 @@ class ISModel(nn.Module):
         if self.with_prev_mask:
             self.coord_feature_ch += 1
 
+        # rgb convolution layer 추가
         if use_rgb_conv:
             rgb_conv_layers = [
                 nn.Conv2d(3 + self.coord_feature_ch, 6 + self.coord_feature_ch, kernel_size=1),
@@ -47,6 +48,7 @@ class ISModel(nn.Module):
                 ScaleLayer(init_value=0.05, lr_mult=1)  # Adjusting Learning Rate
             )
 
+        # Click들로부터 이미지까지의 거리 계산
         if self.clicks_groups is not None:
             self.dist_maps = nn.ModuleList()
             for click_radius in self.clicks_groups:

@@ -9,7 +9,8 @@ COCO_MVAL_PATH: "../../../../mnt/sda/suhohan/COCO_MVal"
 
 # Train datasets
 DATASET_PATH: "../../../../mnt/sda/suhohan/"
-SBD_PATH: "../../../../mnt/sda/suhohan/datasets/SBD"
+BRATS_PATH: "../../../../mnt/sda/suhohan/BraTS2020"
+SBD_PATH: "../../../../mnt/sda/suhohan/SBD"
 COCO_PATH: "../../../../mnt/sda/suhohan/coco2017"
 LVIS_PATH: "../../../../mnt/sda/suhohan/LVIS"
 OPENIMAGES_PATH: "../../../../mnt/sda/suhohan/OpenImages"

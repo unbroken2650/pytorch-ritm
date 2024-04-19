@@ -19,8 +19,8 @@ def compare_files(referenced_files, actual_files):
     return missing_from_actual, missing_from_json
 
 # 경로 설정
-json_path = '/mnt/sda/suhohan/coco2017/annotations/panoptic_train2017.json'
-images_dir = '/mnt/sda/suhohan/coco2017/train2017'
+json_path = '/mnt/sda/suhohan/coco2017/annotations/panoptic_val2017.json'
+images_dir = '/mnt/sda/suhohan/coco2017/val2017'
 
 # 데이터 로드
 annotations = load_json_annotations(json_path)

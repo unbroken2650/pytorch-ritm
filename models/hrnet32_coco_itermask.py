@@ -10,8 +10,8 @@ def main(cfg):
 
 def init_model(cfg):
     model_cfg = edict()
-    model_cfg.crop_size = (320, 480)
-    model_cfg.num_max_points = 24
+    model_cfg.crop_size = (200, 200)
+    model_cfg.num_max_points = 20
 
     model = HRNetModel(width=32, ocr_width=128, with_aux_output=True, use_leaky_relu=True,
                        use_rgb_conv=False, use_disks=True, norm_radius=5, with_prev_mask=True)
@@ -53,31 +53,19 @@ def train(model, cfg, model_cfg):
                                        merge_objects_prob=0.15,
                                        max_num_merged_objects=2)
 
-    trainset = CocoDataset(
-        cfg.COCO_PATH,
-        split='train',
-        augmentator=train_augmentator,
-        min_object_area=1000,
-        keep_background_prob=0.05,
-        points_sampler=points_sampler,
-        epoch_len=30000,
-        stuff_prob=0.30,
-        max_samples=900
-    )
-
-    valset = CocoDataset(
-        cfg.COCO_PATH,
-        split='val',
-        augmentator=val_augmentator,
-        min_object_area=1000,
-        points_sampler=points_sampler,
-        epoch_len=2000
-    )
+    trainset = BraTSDataset(cfg.BRATS_PATH, split='train', augmentator=train_augmentator,
+                            min_object_area=1000, keep_background_prob=0.05, points_sampler=points_sampler,
+                            epoch_len=30000, stuff_prob=0.30)
+    
+    valset = BraTSDataset(cfg.BRATS_PATH, split='val', augmentator=val_augmentator,
+                            min_object_area=1000, keep_background_prob=0.05, points_sampler=points_sampler,
+                            epoch_len=30000, stuff_prob=0.30)
 
     optimizer_params = {
         'lr': 5e-4, 'betas': (0.9, 0.999), 'eps': 1e-8
     }
 
+    # epoch이 milestones에 도달하면 학습률을 gamma만큼 곱해서 줄임
     lr_scheduler = partial(torch.optim.lr_scheduler.MultiStepLR,
                            milestones=[200, 220], gamma=0.1)
 

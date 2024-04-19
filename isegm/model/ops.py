@@ -6,11 +6,10 @@ import numpy as np
 
 
 class DistMaps(nn.Module):
-    def __init__(self, norm_radius, spatial_scale=1.0, cpu_mode=False, use_disks=False):
+    def __init__(self, norm_radius, spatial_scale=1.0, use_disks=False):
         super(DistMaps, self).__init__()
         self.norm_radius = norm_radius
         self.spatial_scale = spatial_scale
-        self.cpu_mode = cpu_mode
         self.use_disks = use_disks
 
     # 각 점으로부터 이미지 내의 모든 픽셀까지의 거리 계산
@@ -31,7 +30,6 @@ class DistMaps(nn.Module):
         # 거리 계산
         add_xy = (points * self.spatial_scale).view(points.size(0), points.size(1), 1, 1)
         coords.add_(-add_xy)
-
         if not self.use_disks:
             coords.div_(self.norm_radius * self.spatial_scale)
         coords.mul_(coords)
