@@ -21,7 +21,7 @@ from .optimizer import get_optimizer
 class ISTrainer(object):
     def __init__(self, model, cfg, model_cfg, loss_cfg,
                  trainset, valset, optimizer='adam',
-                 optimizer_params=None, image_dump_interval=200, checkpoint_interval=10,
+                 optimizer_params=None, image_dump_interval=20, checkpoint_interval=10,
                  tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
                  metrics=None, additional_val_metrics=None, net_inputs=('images', 'points'),
                  max_num_next_clicks=0, click_models=None, prev_mask_drop_prob=0.0,):
@@ -56,13 +56,13 @@ class ISTrainer(object):
         logger.info(f'Dataset of {valset.get_samples_number()} samples was loaded for validation.')
 
         self.train_data = DataLoader(
-            trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers
+            trainset, (cfg.batch_size)*2, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
+            drop_last=True, pin_memory=True, num_workers=16
         )
 
         self.val_data = DataLoader(
             valset, cfg.val_batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers*2
+            drop_last=True, pin_memory=True, num_workers=cfg.workers
         )
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
@@ -106,8 +106,7 @@ class ISTrainer(object):
 
     def training(self, epoch):
         if self.sw is None and self.is_master:
-            self.sw = SummaryWriterAvg(log_dir=str(self.cfg.LOGS_PATH),
-                                       flush_secs=10, dump_period=self.tb_dump_period)
+            self.sw = SummaryWriterAvg(log_dir=str(self.cfg.LOGS_PATH), flush_secs=10, dump_period=self.tb_dump_period)
 
         if self.cfg.distributed:
             self.train_data.sampler.set_epoch(epoch)
@@ -121,7 +120,6 @@ class ISTrainer(object):
         self.net.train()
         train_loss = 0.0
         for i, batch_data in enumerate(tbar):
-            global_step = epoch * len(self.train_data) + i
 
             loss, losses_logging, splitted_batch_data, outputs = self.batch_forward(batch_data)
 
@@ -138,41 +136,20 @@ class ISTrainer(object):
                 for loss_name, loss_value in losses_logging.items():
                     self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}',
                                        value=loss_value.item(),
-                                       global_step=global_step)
+                                       epoch=epoch)
 
-                for k, v in self.loss_cfg.items():
-                    if '_loss' in k and hasattr(v, 'log_states') and self.loss_cfg.get(k + '_weight', 0.0) > 0:
-                        v.log_states(self.sw, f'{log_prefix}Losses/{k}', global_step)
+                if self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
+                    self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
 
-                if self.image_dump_interval > 0 and global_step % self.image_dump_interval == 0:
-                    self.save_visualization(splitted_batch_data, outputs, global_step, prefix='train')
-
-                self.sw.add_scalar(tag=f'{log_prefix}States/learning_rate',
-                                   value=self.lr if not hasattr(
-                                       self, 'lr_scheduler') else self.lr_scheduler.get_lr()[-1],
-                                   global_step=global_step)
-
-                tbar.set_description(f'Epoch {epoch}, training loss {train_loss/(i+1):.4f}')
-                for metric in self.train_metrics:
-                    metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', global_step)
+            tbar.set_description(
+                f'Epoch {epoch}, Batch {i+1}/{len(self.train_data)}, Current Loss: {train_loss/(i+1):.4f}')
 
         if self.is_master:
             for metric in self.train_metrics:
-                self.sw.add_scalar(tag=f'{log_prefix}Metrics/{metric.name}',
-                                   value=metric.get_epoch_value(),
-                                   global_step=epoch, disable_avg=True)
+                metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
 
             save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
-                            epoch=None, multi_gpu=self.cfg.multi_gpu)
-
-            if isinstance(self.checkpoint_interval, (list, tuple)):
-                checkpoint_interval = [x for x in self.checkpoint_interval if x[0] <= epoch][-1][1]
-            else:
-                checkpoint_interval = self.checkpoint_interval
-
-            if epoch % checkpoint_interval == 0:
-                save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
-                                epoch=epoch, multi_gpu=self.cfg.multi_gpu)
+                            epoch=epoch, multi_gpu=self.cfg.multi_gpu)
 
         if hasattr(self, 'lr_scheduler'):
             self.lr_scheduler.step()
@@ -227,7 +204,7 @@ class ISTrainer(object):
             image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
 
-            prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :1, :, :]
+            prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
 
             last_click_indx = None
 
@@ -271,8 +248,7 @@ class ISTrainer(object):
             if self.is_master:
                 with torch.no_grad():
                     for m in metrics:
-                        m.update(*(output.get(x) for x in m.pred_outputs),
-                                 *(batch_data[x] for x in m.gt_outputs))
+                        m.update(*(output.get(x) for x in m.pred_outputs), *(batch_data[x] for x in m.gt_outputs))
         return loss, losses_logging, batch_data, output
 
     def add_loss(self, loss_name, total_loss, losses_logging, validation, lambda_loss_inputs):

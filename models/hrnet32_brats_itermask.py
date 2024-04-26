@@ -53,11 +53,11 @@ def train(model, cfg, model_cfg):
                                        merge_objects_prob=0.15,
                                        max_num_merged_objects=2)
     
-    trainset = CocoDataset(cfg.COCO_PATH, split='train', augmentator=train_augmentator,
+    trainset = BraTSDataset(cfg.BRATS_PATH, split='train', augmentator=train_augmentator,
                             min_object_area=1000, keep_background_prob=0.05,
                             points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30)
     
-    valset = CocoDataset(cfg.COCO_PATH, split='val', augmentator=val_augmentator,
+    valset = BraTSDataset(cfg.BRATS_PATH, split='val', augmentator=val_augmentator,
                           min_object_area=1000, keep_background_prob=0.05,
                           points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30)
 
