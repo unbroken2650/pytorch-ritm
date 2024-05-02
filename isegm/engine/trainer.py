@@ -1,3 +1,4 @@
+from torch.utils.data._utils.collate import default_collate
 import os
 import random
 import logging
@@ -23,7 +24,7 @@ class ISTrainer(object):
                  trainset, valset, optimizer='adam',
                  optimizer_params=None, image_dump_interval=20, checkpoint_interval=10,
                  tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
-                 metrics=None, additional_val_metrics=None, net_inputs=('images', 'points'),
+                 metrics=None, additional_val_metrics=None, net_inputs=('image', 'point'),
                  max_num_next_clicks=0, click_models=None, prev_mask_drop_prob=0.0,):
         self.cfg = cfg
         self.model_cfg = model_cfg
@@ -52,17 +53,17 @@ class ISTrainer(object):
         self.trainset = trainset
         self.valset = valset
 
-        logger.info(f'Dataset of {trainset.get_samples_number()} samples was loaded for training.')
-        logger.info(f'Dataset of {valset.get_samples_number()} samples was loaded for validation.')
+        logger.info(f'Dataset of {trainset.get_samples_number()} samples is loaded for training.')
+        logger.info(f'Dataset of {valset.get_samples_number()} samples is loaded for validation.')
 
         self.train_data = DataLoader(
-            trainset, (cfg.batch_size)*2, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=16
+            trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
+            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate
         )
 
         self.val_data = DataLoader(
             valset, cfg.val_batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers
+            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate
         )
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
@@ -105,14 +106,14 @@ class ISTrainer(object):
                 logger.info(f'Epoch {epoch}/{num_epochs} validation Done')
 
     def training(self, epoch):
-        if self.sw is None and self.is_master:
+        if self.sw is None:
             self.sw = SummaryWriterAvg(log_dir=str(self.cfg.LOGS_PATH), flush_secs=10, dump_period=self.tb_dump_period)
 
         if self.cfg.distributed:
             self.train_data.sampler.set_epoch(epoch)
 
         log_prefix = 'Train' + self.task_prefix.capitalize()
-        tbar = tqdm(self.train_data, file=self.tqdm_out, ncols=100) if self.is_master else self.train_data
+        tbar = tqdm(self.train_data, file=self.tqdm_out, ncols=100)
 
         for metric in self.train_metrics:
             metric.reset_epoch_stats()
@@ -132,35 +133,32 @@ class ISTrainer(object):
 
             train_loss += losses_logging['overall'].item()
 
-            if self.is_master:
-                for loss_name, loss_value in losses_logging.items():
-                    self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}',
-                                       value=loss_value.item(),
-                                       epoch=epoch)
+            for loss_name, loss_value in losses_logging.items():
+                self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}',
+                                   scalar_value=loss_value.item(), global_step=epoch)
 
-                if self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
-                    self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
+            if self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
+                self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
 
             tbar.set_description(
                 f'Epoch {epoch}, Batch {i+1}/{len(self.train_data)}, Current Loss: {train_loss/(i+1):.4f}')
 
-        if self.is_master:
-            for metric in self.train_metrics:
-                metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
+        for metric in self.train_metrics:
+            metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
 
-            save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
-                            epoch=epoch, multi_gpu=self.cfg.multi_gpu)
+        save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
+                        epoch=epoch, multi_gpu=self.cfg.multi_gpu)
 
         if hasattr(self, 'lr_scheduler'):
             self.lr_scheduler.step()
 
     def validation(self, epoch):
-        if self.sw is None and self.is_master:
+        if self.sw is None:
             self.sw = SummaryWriterAvg(log_dir=str(self.cfg.LOGS_PATH),
                                        flush_secs=10, dump_period=self.tb_dump_period)
 
         log_prefix = 'Val' + self.task_prefix.capitalize()
-        tbar = tqdm(self.val_data, file=self.tqdm_out, ncols=100) if self.is_master else self.val_data
+        tbar = tqdm(self.val_data, file=self.tqdm_out, ncols=100)
 
         for metric in self.val_metrics:
             metric.reset_epoch_stats()
@@ -181,19 +179,17 @@ class ISTrainer(object):
 
             val_loss += batch_losses_logging['overall'].item()
 
-            if self.is_master:
-                tbar.set_description(f'Epoch {epoch}, validation loss: {val_loss/(i + 1):.4f}')
-                for metric in self.val_metrics:
-                    metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', global_step)
-
-        if self.is_master:
-            for loss_name, loss_values in losses_logging.items():
-                self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}', value=np.array(loss_values).mean(),
-                                   global_step=epoch, disable_avg=True)
-
+            tbar.set_description(f'Epoch {epoch}, validation loss: {val_loss/(i + 1):.4f}')
             for metric in self.val_metrics:
-                self.sw.add_scalar(tag=f'{log_prefix}Metrics/{metric.name}', value=metric.get_epoch_value(),
-                                   global_step=epoch, disable_avg=True)
+                metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', global_step)
+
+        for loss_name, loss_values in losses_logging.items():
+            self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}', value=np.array(loss_values).mean(),
+                               global_step=epoch, disable_avg=True)
+
+        for metric in self.val_metrics:
+            self.sw.add_scalar(tag=f'{log_prefix}Metrics/{metric.name}', value=metric.get_epoch_value(),
+                               global_step=epoch, disable_avg=True)
 
     def batch_forward(self, batch_data, validation=False):
         metrics = self.val_metrics if validation else self.train_metrics
@@ -201,7 +197,7 @@ class ISTrainer(object):
 
         with torch.set_grad_enabled(not validation):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
-            image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
+            image, gt_mask, points = batch_data['image'], batch_data['label'], batch_data['point']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
 
             prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
@@ -217,13 +213,10 @@ class ISTrainer(object):
                     if not validation:
                         self.net.eval()
 
-                    if self.click_models is None or click_indx >= len(self.click_models):
-                        eval_model = self.net
-                    else:
-                        eval_model = self.click_models[click_indx]
+                    eval_model = self.net
 
                     net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
-                    prev_output = torch.sigmoid(eval_model(net_input, points)['instances'])
+                    prev_output = torch.sigmoid(eval_model(net_input, points)['label'])
 
                     points = get_next_points(prev_output, orig_gt_mask, points, click_indx + 1)
 
@@ -234,21 +227,20 @@ class ISTrainer(object):
                     zero_mask = np.random.random(size=prev_output.size(0)) < self.prev_mask_drop_prob
                     prev_output[zero_mask] = torch.zeros_like(prev_output[zero_mask])
 
-            batch_data['points'] = points
+            batch_data['point'] = points
 
             net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
             output = self.net(net_input, points)
 
             loss = 0.0
             loss = self.add_loss('instance_loss', loss, losses_logging, validation,
-                                 lambda: (output['instances'], batch_data['instances']))
+                                 lambda: (output['label'], batch_data['label']))
             loss = self.add_loss('instance_aux_loss', loss, losses_logging, validation,
-                                 lambda: (output['instances_aux'], batch_data['instances']))
+                                 lambda: (output['instances_aux'], batch_data['label']))
 
-            if self.is_master:
-                with torch.no_grad():
-                    for m in metrics:
-                        m.update(*(output.get(x) for x in m.pred_outputs), *(batch_data[x] for x in m.gt_outputs))
+            with torch.no_grad():
+                for m in metrics:
+                    m.update(*(output.get(x) for x in m.pred_outputs), *(batch_data[x] for x in m.gt_outputs))
         return loss, losses_logging, batch_data, output
 
     def add_loss(self, loss_name, total_loss, losses_logging, validation, lambda_loss_inputs):
@@ -277,12 +269,12 @@ class ISTrainer(object):
             cv2.imwrite(str(output_images_path / f'{image_name_prefix}_{suffix}.jpg'),
                         image, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
-        images = splitted_batch_data['images']
-        points = splitted_batch_data['points']
-        instance_masks = splitted_batch_data['instances']
+        images = splitted_batch_data['image']
+        points = splitted_batch_data['point']
+        instance_masks = splitted_batch_data['label']
 
         gt_instance_masks = instance_masks.cpu().numpy()
-        predicted_instance_masks = torch.sigmoid(outputs['instances']).detach().cpu().numpy()
+        predicted_instance_masks = torch.sigmoid(outputs['label']).detach().cpu().numpy()
         points = points.detach().cpu().numpy()
 
         image_blob, points = images[0], points[0]
@@ -317,10 +309,6 @@ class ISTrainer(object):
             logger.info(f'Load checkpoint from path: {checkpoint_path}')
             load_weights(net, str(checkpoint_path))
         return net
-
-    @property
-    def is_master(self):
-        return self.cfg.local_rank == 0
 
 
 def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):

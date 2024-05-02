@@ -331,8 +331,7 @@ class HighResolutionNet(nn.Module):
             else:
                 x_list.append(y_list[i])
         x = self.stage4(x_list)
-        
-        
+
         x0_h, x0_w = x[0].size(2), x[0].size(3)
         x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=self.align_corners)
         x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=self.align_corners)
@@ -351,22 +350,21 @@ class HighResolutionNet(nn.Module):
         else:
             return [self.cls_head(feats), None]
 
-
     def load_pretrained_weights(self, pretrained_path=''):
         model_dict = self.state_dict()
 
         if not os.path.exists(pretrained_path):
             print(f'\nFile "{pretrained_path}" does not exist.')
             print('You need to specify the correct path to the pre-trained weights.\n'
-                'You can download the weights for HRNet from the repository:\n'
-                'https://github.com/HRNet/HRNet-Image-Classification')
+                  'You can download the weights for HRNet from the repository:\n'
+                  'https://github.com/HRNet/HRNet-Image-Classification')
             exit(1)
         pretrained_dict = torch.load(pretrained_path, map_location={'cuda:0': 'cpu'})
         pretrained_dict = {k.replace('last_layer', 'aux_head').replace('model.', ''): v for k, v in
-                        pretrained_dict.items()}
+                           pretrained_dict.items()}
 
         pretrained_dict = {k: v for k, v in pretrained_dict.items()
-                        if k in model_dict.keys()}
+                           if k in model_dict.keys()}
 
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)

@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from isegm.utils.exp_imports.default import *
 from easydict import EasyDict as edict
@@ -10,11 +11,11 @@ def main(cfg):
 
 def init_model(cfg):
     model_cfg = edict()
-    model_cfg.crop_size = (200, 200)
+    model_cfg.crop_size = (240, 240)
     model_cfg.num_max_points = 20
 
     model = HRNetModel(width=32, ocr_width=128, with_aux_output=True, use_leaky_relu=True,
-                       use_rgb_conv=False, use_disks=True, norm_radius=5, with_prev_mask=True)
+                       use_rgb_conv=True, use_disks=True, norm_radius=5, with_prev_mask=True)
     model.to(cfg.device)
     model.apply(initializer.XavierGluon(rnd_type='gaussian', magnitude=2.0))
     model.feature_extractor.load_pretrained_weights(cfg.IMAGENET_PRETRAINED_MODELS.HRNETV2_W32)
@@ -49,22 +50,23 @@ def train(model, cfg, model_cfg):
         RandomCrop(*crop_size)
     ], p=1.0)
 
-    points_sampler = MultiPointSampler(model_cfg.num_max_points, prob_gamma=0.80,
+    points_sampler = RandomPointSampler(model_cfg.num_max_points, prob_gamma=0.80,
                                        merge_objects_prob=0.15,
                                        max_num_merged_objects=2)
-    
+
     trainset = BraTSDataset(cfg.BRATS_PATH, split='train', augmentator=train_augmentator,
                             min_object_area=1000, keep_background_prob=0.05,
-                            points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30)
-    
+                            points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30,
+                            temp=cfg.temp)
+
     valset = BraTSDataset(cfg.BRATS_PATH, split='val', augmentator=val_augmentator,
                           min_object_area=1000, keep_background_prob=0.05,
-                          points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30)
+                          points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30,
+                          temp=cfg.temp)
 
     optimizer_params = {
         'lr': 5e-4, 'betas': (0.9, 0.999), 'eps': 1e-8
     }
-
     # epoch이 milestones에 도달하면 학습률을 gamma만큼 곱해서 줄임
     lr_scheduler = partial(torch.optim.lr_scheduler.MultiStepLR,
                            milestones=[200, 220], gamma=0.1)
@@ -75,7 +77,6 @@ def train(model, cfg, model_cfg):
                         optimizer_params=optimizer_params,
                         lr_scheduler=lr_scheduler,
                         checkpoint_interval=[(0, 5), (200, 1)],
-                        image_dump_interval=3000,
                         metrics=[AdaptiveIoU()],
                         max_interactive_points=model_cfg.num_max_points,
                         max_num_next_clicks=3)
