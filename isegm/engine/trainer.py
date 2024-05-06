@@ -24,7 +24,7 @@ class ISTrainer(object):
                  trainset, valset, optimizer='adam',
                  optimizer_params=None, image_dump_interval=20, checkpoint_interval=10,
                  tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
-                 metrics=None, additional_val_metrics=None, net_inputs=('image', 'point'),
+                 metrics=None, additional_val_metrics=None, net_inputs=('images', 'points'),
                  max_num_next_clicks=0, click_models=None, prev_mask_drop_prob=0.0,):
         self.cfg = cfg
         self.model_cfg = model_cfg
@@ -58,13 +58,11 @@ class ISTrainer(object):
 
         self.train_data = DataLoader(
             trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate
-        )
+            drop_last=True, pin_memory=True, num_workers=cfg.workers)
 
         self.val_data = DataLoader(
-            valset, cfg.val_batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate
-        )
+            valset, cfg.batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
+            drop_last=True, pin_memory=True, num_workers=cfg.workers)
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
         model = self._load_weights(model)
@@ -97,13 +95,9 @@ class ISTrainer(object):
         logger.info(f'Starting Epoch: {start_epoch}')
         logger.info(f'Total Epochs: {num_epochs}')
         for epoch in range(start_epoch, num_epochs):
-            logger.info(f'Epoch {epoch}/{num_epochs} train Start')
             self.training(epoch)
-            logger.info(f'Epoch {epoch}/{num_epochs} train Done')
             if validation:
-                logger.info(f'Epoch {epoch}/{num_epochs} validation Start')
                 self.validation(epoch)
-                logger.info(f'Epoch {epoch}/{num_epochs} validation Done')
 
     def training(self, epoch):
         if self.sw is None:
@@ -120,6 +114,7 @@ class ISTrainer(object):
 
         self.net.train()
         train_loss = 0.0
+        image_saved = False
         for i, batch_data in enumerate(tbar):
 
             loss, losses_logging, splitted_batch_data, outputs = self.batch_forward(batch_data)
@@ -134,11 +129,11 @@ class ISTrainer(object):
             train_loss += losses_logging['overall'].item()
 
             for loss_name, loss_value in losses_logging.items():
-                self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}',
-                                   scalar_value=loss_value.item(), global_step=epoch)
+                self.sw.add_scalar(f'{log_prefix}Losses/{loss_name}', loss_value.item(), epoch)
 
-            if self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
+            if not image_saved and self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
                 self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
+                image_saved = True
 
             tbar.set_description(
                 f'Epoch {epoch}, Batch {i+1}/{len(self.train_data)}, Current Loss: {train_loss/(i+1):.4f}')
@@ -146,8 +141,9 @@ class ISTrainer(object):
         for metric in self.train_metrics:
             metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
 
-        save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
-                        epoch=epoch, multi_gpu=self.cfg.multi_gpu)
+        if epoch % 20 == 0:
+            save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
+                            epoch=epoch, multi_gpu=self.cfg.multi_gpu)
 
         if hasattr(self, 'lr_scheduler'):
             self.lr_scheduler.step()
@@ -197,7 +193,7 @@ class ISTrainer(object):
 
         with torch.set_grad_enabled(not validation):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
-            image, gt_mask, points = batch_data['image'], batch_data['label'], batch_data['point']
+            image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
 
             prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
@@ -216,7 +212,7 @@ class ISTrainer(object):
                     eval_model = self.net
 
                     net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
-                    prev_output = torch.sigmoid(eval_model(net_input, points)['label'])
+                    prev_output = torch.sigmoid(eval_model(net_input, points)['instances'])
 
                     points = get_next_points(prev_output, orig_gt_mask, points, click_indx + 1)
 
@@ -227,16 +223,16 @@ class ISTrainer(object):
                     zero_mask = np.random.random(size=prev_output.size(0)) < self.prev_mask_drop_prob
                     prev_output[zero_mask] = torch.zeros_like(prev_output[zero_mask])
 
-            batch_data['point'] = points
+            batch_data['points'] = points
 
             net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
             output = self.net(net_input, points)
 
             loss = 0.0
             loss = self.add_loss('instance_loss', loss, losses_logging, validation,
-                                 lambda: (output['label'], batch_data['label']))
+                                 lambda: (output['instances'], batch_data['instances']))
             loss = self.add_loss('instance_aux_loss', loss, losses_logging, validation,
-                                 lambda: (output['instances_aux'], batch_data['label']))
+                                 lambda: (output['instances_aux'], batch_data['instances']))
 
             with torch.no_grad():
                 for m in metrics:
@@ -269,18 +265,18 @@ class ISTrainer(object):
             cv2.imwrite(str(output_images_path / f'{image_name_prefix}_{suffix}.jpg'),
                         image, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
-        images = splitted_batch_data['image']
-        points = splitted_batch_data['point']
-        instance_masks = splitted_batch_data['label']
+        images = splitted_batch_data['images']
+        points = splitted_batch_data['points']
+        instance_masks = splitted_batch_data['instances']
 
         gt_instance_masks = instance_masks.cpu().numpy()
-        predicted_instance_masks = torch.sigmoid(outputs['label']).detach().cpu().numpy()
+        predicted_instance_masks = torch.sigmoid(outputs['instances']).detach().cpu().numpy()
         points = points.detach().cpu().numpy()
 
         image_blob, points = images[0], points[0]
+        
         gt_mask = np.squeeze(gt_instance_masks[0], axis=0)
         predicted_mask = np.squeeze(predicted_instance_masks[0], axis=0)
-
         image = image_blob.cpu().numpy() * 255
         image = image.transpose((1, 2, 0))
 

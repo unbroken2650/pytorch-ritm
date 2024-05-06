@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('--exp-name', type=str, default='test')
     parser.add_argument('--workers', type=int, default=8)
     parser.add_argument('--batch-size', type=int, default=30)
-    parser.add_argument('--gpus', type=str, default='0')
+    parser.add_argument('--gpus', type=str, default='1')
     parser.add_argument('--resume-exp', type=str, default=None)
     parser.add_argument('--resume-prefix', type=str, default='latest')
     parser.add_argument('--start-epoch', type=int, default=0)

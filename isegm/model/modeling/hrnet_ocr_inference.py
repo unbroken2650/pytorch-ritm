@@ -291,6 +291,55 @@ class HighResolutionNet(nn.Module):
 
     def forward(self, x, additional_features=None):
         feats = self.compute_hrnet_feats(x, additional_features)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+
+        if additional_features is not None:
+            x = x + additional_features
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.layer1(x)
+
+        x_list = []
+        for i in range(self.stage2_num_branches):
+            if self.transition1[i] is not None:
+                x_list.append(self.transition1[i](x))
+            else:
+                x_list.append(x)
+        y_list = self.stage2(x_list)
+
+        x_list = []
+        for i in range(self.stage3_num_branches):
+            if self.transition2[i] is not None:
+                if i < self.stage2_num_branches:
+                    x_list.append(self.transition2[i](y_list[i]))
+                else:
+                    x_list.append(self.transition2[i](y_list[-1]))
+            else:
+                x_list.append(y_list[i])
+        y_list = self.stage3(x_list)
+
+        x_list = []
+        for i in range(self.stage4_num_branches):
+            if self.transition3[i] is not None:
+                if i < self.stage2_num_branches:
+                    x_list.append(self.transition3[i](y_list[i]))
+                else:
+                    x_list.append(self.transition3[i](y_list[-1]))
+            else:
+                x_list.append(y_list[i])
+        x = self.stage4(x_list)
+
+        x0_h, x0_w = x[0].size(2), x[0].size(3)
+        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=self.align_corners)
+        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=self.align_corners)
+        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=self.align_corners)
+
+        feats = torch.cat([x[0], x1, x2, x3], 1)
+
         if self.ocr_width > 0:
             out_aux = self.aux_head(feats)
             feats = self.conv3x3_ocr(feats)

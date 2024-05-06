@@ -9,12 +9,15 @@ from tqdm import tqdm
 
 
 class BraTSDataset(ISDataset):
-    def __init__(self, dataset_path, split, stuff_prob=0.0, **kwargs):
+    def __init__(self, dataset_path, split, temp=False, stuff_prob=0.0, **kwargs):
         super(BraTSDataset, self).__init__(**kwargs)
-        self.dataset_path = Path(dataset_path) / f'selected_tensors_{split}'
+        if temp:
+            self.dataset_path = Path(dataset_path) / f'temp_{split}'
+        else:
+            self.dataset_path = Path(dataset_path) / f'selected_slices_{split}'
         self.split = split
         self.stuff_prob = stuff_prob
-        self.file_paths = sorted(list(self.dataset_path.glob('*.pth')))
+        self.file_paths = sorted(list(self.dataset_path.glob('*.npy')))
 
         if not self.file_paths:
             raise FileNotFoundError(
@@ -30,18 +33,19 @@ class BraTSDataset(ISDataset):
         self.dataset_samples = []
 
         for file_path in tqdm(file_paths, desc='Loading files'):
-            tensor_data = torch.load(file_path)
+            tensor_data = np.load(file_path, allow_pickle=True).item()
             image = np.array(tensor_data['image'])
-            image = image.squeeze()
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            min_val, max_val = np.min(image), np.max(image)
+            image = (image - min_val) / (max_val - min_val) * 255
+            image = image.astype(np.uint8)
+            image = np.array([image, image, image])
 
             if self.split == 'train':
                 label = np.array(tensor_data['label'])
+                label = label.astype(np.uint8)
                 self.dataset_samples.append({"image": image, "label": label})
             else:
                 self.dataset_samples.append({"image": image})
-
-            print(f'{len(self.dataset_samples)} images loaded from {len(file_paths)} files')
 
     def get_sample(self, index) -> DSample:
         dataset_sample = self.dataset_samples[index]

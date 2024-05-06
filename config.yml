@@ -20,10 +20,10 @@ ADE20K_PATH: "../../../../mnt/sda/suhohan/ADE20K"
 # You can download the weights for HRNet from the repository:
 # https://github.com/HRNet/HRNet-Image-Classification
 IMAGENET_PRETRAINED_MODELS:
-  HRNETV2_W18: "../../../../mnt/sda/suhohan/hrnet/pretrained_models/hrnetv2_w18_imagenet_pretrained.pth"
-  HRNETV2_W32: "../../../../mnt/sda/suhohan/hrnet/pretrained_models/hrnetv2_w32_imagenet_pretrained.pth"
-  HRNETV2_W40: "../../../../mnt/sda/suhohan/hrnet/pretrained_models/hrnetv2_w40_imagenet_pretrained.pth"
-  HRNETV2_W48: "../../../../mnt/sda/suhohan/hrnet/pretrained_models/hrnetv2_w48_imagenet_pretrained.pth"
+  HRNETV2_W18: "../../../../mnt/sda/suhohan/pretrained_models/hrnetv2_w18_imagenet_pretrained.pth"
+  HRNETV2_W32: "../../../../mnt/sda/suhohan/pretrained_models/hrnetv2_w32_imagenet_pretrained.pth"
+  HRNETV2_W40: "../../../../mnt/sda/suhohan/pretrained_models/hrnetv2_w40_imagenet_pretrained.pth"
+  HRNETV2_W48: "../../../../mnt/sda/suhohan/pretrained_models/hrnetv2_w48_imagenet_pretrained.pth"
 
 # Logs
 LOGS_PATH: "./logs"

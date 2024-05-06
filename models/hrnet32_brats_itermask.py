@@ -35,32 +35,15 @@ def train(model, cfg, model_cfg):
     loss_cfg.instance_aux_loss = SigmoidBinaryCrossEntropyLoss()
     loss_cfg.instance_aux_loss_weight = 0.4
 
-    # train과 validation을 위한 데이터 조정
-    train_augmentator = Compose([
-        UniformRandomResize(scale_range=(0.75, 1.40)),
-        HorizontalFlip(),
-        PadIfNeeded(min_height=crop_size[0], min_width=crop_size[1], border_mode=0),
-        RandomCrop(*crop_size),
-        RandomBrightnessContrast(brightness_limit=(-0.25, 0.25), contrast_limit=(-0.15, 0.4), p=0.75),
-        RGBShift(r_shift_limit=10, g_shift_limit=10, b_shift_limit=10, p=0.75)
-    ], p=1.0)
-
-    val_augmentator = Compose([
-        PadIfNeeded(min_height=crop_size[0], min_width=crop_size[1], border_mode=0),
-        RandomCrop(*crop_size)
-    ], p=1.0)
-
-    points_sampler = RandomPointSampler(model_cfg.num_max_points, prob_gamma=0.80,
+    points_sampler = MultiPointSampler(model_cfg.num_max_points, prob_gamma=0.80,
                                        merge_objects_prob=0.15,
                                        max_num_merged_objects=2)
 
-    trainset = BraTSDataset(cfg.BRATS_PATH, split='train', augmentator=train_augmentator,
-                            min_object_area=1000, keep_background_prob=0.05,
+    trainset = BraTSDataset(cfg.BRATS_PATH, split='train', min_object_area=1000, keep_background_prob=0.05,
                             points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30,
                             temp=cfg.temp)
 
-    valset = BraTSDataset(cfg.BRATS_PATH, split='val', augmentator=val_augmentator,
-                          min_object_area=1000, keep_background_prob=0.05,
+    valset = BraTSDataset(cfg.BRATS_PATH, split='val', min_object_area=1000, keep_background_prob=0.05,
                           points_sampler=points_sampler, epoch_len=30000, stuff_prob=0.30,
                           temp=cfg.temp)
 

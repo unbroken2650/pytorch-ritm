@@ -46,7 +46,7 @@ class ISDataset(torch.utils.data.dataset.Dataset):
         mask = self.points_sampler.selected_mask
 
         output = {
-            'images': self.to_tensor(sample.image),
+            'images': torch.tensor(sample.image),
             'points': points.astype(np.float32),
             'instances': mask
         }

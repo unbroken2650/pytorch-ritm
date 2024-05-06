@@ -61,7 +61,7 @@ def get_dataset(dataset_name, cfg):
     elif dataset_name == 'COCO_MVal':
         dataset = DavisDataset(cfg.COCO_MVAL_PATH)
     elif dataset_name == 'BraTS':
-        dataset = BraTSDataset(cfg.BRATS_PATH, split='train', temp=False)
+        dataset = BraTSDataset(cfg.BRATS_PATH, split='train', temp=True)
     else:
         dataset = None
 
