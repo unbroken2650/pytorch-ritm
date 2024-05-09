@@ -195,6 +195,7 @@ class ISTrainer(object):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
             image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
+            self.save_visualization(batch_data, {'instances':gt_mask}, 999, prefix='train')
 
             prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
 

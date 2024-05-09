@@ -1,10 +1,12 @@
 import random
+import cv2
 import pickle
 import numpy as np
 import torch
 from torchvision import transforms
 from .points_sampler import MultiPointSampler
 from .sample import DSample
+from pathlib import Path
 
 
 class ISDataset(torch.utils.data.dataset.Dataset):
@@ -26,6 +28,8 @@ class ISDataset(torch.utils.data.dataset.Dataset):
         self.with_image_info = with_image_info
         self.samples_precomputed_scores = self._load_samples_scores(samples_scores_path, samples_scores_gamma)
         self.to_tensor = transforms.ToTensor()
+        self.vis_dir = Path("./experiments/saved_base_images")
+        self.vis_dir.mkdir(parents=True, exist_ok=True)
 
         self.dataset_samples = None
 
@@ -50,6 +54,7 @@ class ISDataset(torch.utils.data.dataset.Dataset):
             'points': points.astype(np.float32),
             'instances': mask
         }
+        self._visualize_data(sample.image, mask, 99)
 
         if self.with_image_info:
             output['image_info'] = sample.sample_id
@@ -97,3 +102,9 @@ class ISDataset(torch.utils.data.dataset.Dataset):
         }
         print(f'Loaded {len(probs)} weights with gamma={samples_scores_gamma}')
         return samples_scores
+
+    def _visualize_data(self, image, label, idx):
+        image_path = self.vis_dir / f'image_{idx}.png'
+        cv2.imwrite(str(image_path), image[0,:,:])
+        label_path = self.vis_dir / f'label_{idx}.png'
+        cv2.imwrite(str(label_path), label[0,:,:])

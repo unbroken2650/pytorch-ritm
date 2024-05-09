@@ -62,7 +62,7 @@ def draw_probmap(x):
 
 
 def draw_points(image, points, color, radius=3):
-    image = image.copy()
+    image = image.copy().astype(np.uint8)
     for p in points:
         if p[0] < 0:
             continue
@@ -106,23 +106,17 @@ def get_boundaries(instances_masks, boundaries_width=1):
         obj_boundary = np.logical_xor(obj_mask, np.logical_and(inner_mask, obj_mask))
         boundaries = np.logical_or(boundaries, obj_boundary)
     return boundaries
-    
- 
-def draw_with_blend_and_clicks(img, mask=None, alpha=0.6, clicks_list=None, pos_color=(0, 255, 0),
-                               neg_color=(255, 0, 0), radius=4):
-    result = img.copy()
+
+
+def draw_with_blend_and_clicks(img, mask=None, alpha=0.6, clicks_list=None, pos_color=(0, 255, 0), neg_color=(255, 0, 0), radius=4):
+    result = img.copy().transpose(1, 2, 0)
 
     if mask is not None:
         palette = get_palette(np.max(mask) + 1)
         rgb_mask = palette[mask.astype(np.uint8)]
 
-        mask_region = (mask > 0).astype(np.uint8)
-        result = result * (1 - mask_region[:, :, np.newaxis]) + \
-            (1 - alpha) * mask_region[:, :, np.newaxis] * result + \
-            alpha * rgb_mask
-        result = result.astype(np.uint8)
-
-        # result = (result * (1 - alpha) + alpha * rgb_mask).astype(np.uint8)
+        mask_region = (rgb_mask > 0).astype(np.uint8)
+        result = (result * (1 - alpha) + alpha * rgb_mask * mask_region).astype(np.uint8)
 
     if clicks_list is not None and len(clicks_list) > 0:
         pos_points = [click.coords for click in clicks_list if click.is_positive]
@@ -131,5 +125,4 @@ def draw_with_blend_and_clicks(img, mask=None, alpha=0.6, clicks_list=None, pos_
         result = draw_points(result, pos_points, pos_color, radius=radius)
         result = draw_points(result, neg_points, neg_color, radius=radius)
 
-    return result
-
+    return result.transpose(2, 0, 1)

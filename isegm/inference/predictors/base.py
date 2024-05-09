@@ -36,7 +36,7 @@ class BasePredictor(object):
             self.transforms.append(AddHorizontalFlip())
 
     def set_input_image(self, image):
-        image_nd = self.to_tensor(image)
+        image_nd = torch.tensor(image)
         for transform in self.transforms:
             transform.reset()
         self.original_image = image_nd.to(self.device)

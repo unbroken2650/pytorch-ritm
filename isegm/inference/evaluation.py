@@ -12,6 +12,7 @@ try:
 except NameError:
     from tqdm import tqdm
 
+
 def evaluate_dataset(dataset, predictor, **kwargs):
     all_ious = []
 

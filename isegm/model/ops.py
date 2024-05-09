@@ -69,6 +69,6 @@ class BatchImageNormalize:
         self.std = torch.as_tensor(std, dtype=dtype)[None, :, None, None]
 
     def __call__(self, tensor):
-        tensor = tensor.clone()
+        tensor = tensor.clone().to(dtype=torch.float32)
         tensor.sub_(self.mean.to(tensor.device)).div_(self.std.to(tensor.device))
         return tensor
