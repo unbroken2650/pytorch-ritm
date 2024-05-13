@@ -58,7 +58,9 @@ def visualize_proposals(proposals_info, point_color=(255, 0, 0), point_radius=1)
 
 
 def draw_probmap(x):
-    return cv2.applyColorMap((x * 255).astype(np.uint8), cv2.COLORMAP_HOT)
+    if x.ndim > 2:
+        x = x[0, :, :]
+    return cv2.applyColorMap(x.astype(np.uint8), cv2.COLORMAP_HOT)
 
 
 def draw_points(image, points, color, radius=3):

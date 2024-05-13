@@ -25,7 +25,7 @@ def parse_args():
 
     parser.add_argument('model_path', type=str, default='')
     parser.add_argument('--exp-name', type=str, default='test')
-    parser.add_argument('--workers', type=int, default=8)
+    parser.add_argument('--workers', type=int, default=0)
     parser.add_argument('--batch-size', type=int, default=30)
     parser.add_argument('--gpus', type=str, default='1')
     parser.add_argument('--resume-exp', type=str, default=None)

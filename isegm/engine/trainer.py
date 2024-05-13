@@ -1,4 +1,3 @@
-from torch.utils.data._utils.collate import default_collate
 import os
 import random
 import logging
@@ -10,13 +9,26 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-
+from torch.nn.utils.rnn import pad_sequence
 from isegm.utils.log import logger, TqdmToLogger, SummaryWriterAvg
 from isegm.utils.vis import draw_probmap, draw_points
 from isegm.utils.misc import save_checkpoint
 from isegm.utils.serialization import get_config_repr
-from isegm.utils.distributed import get_dp_wrapper, get_sampler, reduce_loss_dict
+from isegm.utils.distributed import get_sampler, reduce_loss_dict
 from .optimizer import get_optimizer
+
+
+def custom_collate_fn(batch):
+    batch_images = [torch.tensor(item['images'], dtype=torch.float32) for item in batch]
+    batch_instances = [torch.tensor(item['instances'], dtype=torch.float32) for item in batch]
+    batch_points = [torch.tensor(item['points'], dtype=torch.float32) for item in batch]
+
+    batch_images = torch.stack(batch_images, dim=0)
+    batch_instances = torch.stack(batch_instances, dim=0)
+
+    batch_points = pad_sequence(batch_points, batch_first=True, padding_value=0)
+
+    return {'images': batch_images, 'instances': batch_instances, 'points': batch_points}
 
 
 class ISTrainer(object):
@@ -58,11 +70,11 @@ class ISTrainer(object):
 
         self.train_data = DataLoader(
             trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers)
+            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate_fn)
 
         self.val_data = DataLoader(
             valset, cfg.batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers)
+            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate_fn)
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
         model = self._load_weights(model)
@@ -195,7 +207,7 @@ class ISTrainer(object):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
             image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
-            self.save_visualization(batch_data, {'instances':gt_mask}, 999, prefix='train')
+            self.save_visualization(batch_data, {'instances': gt_mask}, 999, prefix='train')
 
             prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
 
@@ -275,11 +287,11 @@ class ISTrainer(object):
         points = points.detach().cpu().numpy()
 
         image_blob, points = images[0], points[0]
-        
-        gt_mask = np.squeeze(gt_instance_masks[0], axis=0)
-        predicted_mask = np.squeeze(predicted_instance_masks[0], axis=0)
-        image = image_blob.cpu().numpy() * 255
-        image = image.transpose((1, 2, 0))
+
+        gt_mask = gt_instance_masks[0]
+        predicted_mask = predicted_instance_masks[0]
+        image = image_blob.cpu().numpy()
+        image = image.transpose(1, 2, 0)
 
         image_with_points = draw_points(image, points[:self.max_interactive_points], (0, 255, 0))
         image_with_points = draw_points(image_with_points, points[self.max_interactive_points:], (0, 0, 255))
@@ -311,7 +323,7 @@ class ISTrainer(object):
 def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):
     assert click_indx > 0
     pred = pred.cpu().numpy()[:, 0, :, :]
-    gt = gt.cpu().numpy()[:, 0, :, :] > 0.5
+    gt = gt.cpu().numpy()
 
     fn_mask = np.logical_and(gt, pred < pred_thresh)
     fp_mask = np.logical_and(np.logical_not(gt), pred > pred_thresh)
@@ -322,6 +334,7 @@ def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):
     points = points.clone()
 
     for bindx in range(fn_mask.shape[0]):
+
         fn_mask_dt = cv2.distanceTransform(fn_mask[bindx], cv2.DIST_L2, 5)[1:-1, 1:-1]
         fp_mask_dt = cv2.distanceTransform(fp_mask[bindx], cv2.DIST_L2, 5)[1:-1, 1:-1]
 
@@ -337,11 +350,11 @@ def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):
             if is_positive:
                 points[bindx, num_points - click_indx, 0] = float(coords[0])
                 points[bindx, num_points - click_indx, 1] = float(coords[1])
-                points[bindx, num_points - click_indx, 2] = float(click_indx)
+                # points[bindx, num_points - click_indx, 2] = float(click_indx)
             else:
                 points[bindx, 2 * num_points - click_indx, 0] = float(coords[0])
                 points[bindx, 2 * num_points - click_indx, 1] = float(coords[1])
-                points[bindx, 2 * num_points - click_indx, 2] = float(click_indx)
+                # points[bindx, 2 * num_points - click_indx, 2] = float(click_indx)
 
     return points
 

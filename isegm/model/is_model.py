@@ -10,13 +10,12 @@ from .modifiers import LRMult
 class ISModel(nn.Module):
     def __init__(self, use_rgb_conv=True, with_aux_output=False,
                  norm_radius=260, use_disks=False, clicks_groups=None,
-                 with_prev_mask=False, use_leaky_relu=False, binary_prev_mask=False,
+                 with_prev_mask=False, use_leaky_relu=False,
                  conv_extend=False, norm_mean_std=([.485, .456, .406], [.229, .224, .225])):
         super().__init__()
         self.with_aux_output = with_aux_output
         self.clicks_groups = clicks_groups
         self.with_prev_mask = with_prev_mask
-        self.binary_prev_mask = binary_prev_mask
         self.normalization = BatchImageNormalize(norm_mean_std[0], norm_mean_std[1])
 
         self.coord_feature_ch = 2
@@ -79,12 +78,10 @@ class ISModel(nn.Module):
 
     def prepare_input(self, image):
         prev_mask = None
-        if self.with_prev_mask:
+        if self.with_prev_mask and image.shape[1] > 3:
             # image의 앞 3개 채널에 mask 정보 담겨있음
             prev_mask = image[:, 3:, :, :]
             image = image[:, :3, :, :]
-            if self.binary_prev_mask:
-                prev_mask = (prev_mask > 0.5).float()
 
         image = self.normalization(image)
         return image, prev_mask
@@ -94,7 +91,7 @@ class ISModel(nn.Module):
 
     def get_coord_features(self, image, prev_mask, points):
         coord_features = torch.zeros((image.size(0), self.coord_feature_ch,
-                                     image.size(2), image.size(3)), device=image.device)
+                                     image.size(2), image.size(3),), device=image.device)
         if self.clicks_groups is not None:
             points_groups = split_points_by_order(points, groups=(2,) + (1, ) * (len(self.clicks_groups) - 2) + (-1,))
             dist_features = [dist_map(image, pg) for dist_map, pg in zip(self.dist_maps, points_groups)]

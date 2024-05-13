@@ -65,8 +65,8 @@ class ScaleLayer(nn.Module):
 
 class BatchImageNormalize:
     def __init__(self, mean, std, dtype=torch.float):
-        self.mean = torch.as_tensor(mean, dtype=dtype)[None, :, None, None]
-        self.std = torch.as_tensor(std, dtype=dtype)[None, :, None, None]
+        self.mean = torch.as_tensor(mean, dtype=dtype)[None, :, None, None,]
+        self.std = torch.as_tensor(std, dtype=dtype)[None, :, None, None,]
 
     def __call__(self, tensor):
         tensor = tensor.clone().to(dtype=torch.float32)

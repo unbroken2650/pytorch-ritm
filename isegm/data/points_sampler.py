@@ -32,8 +32,7 @@ class MultiPointSampler(BasePointSampler):
                  positive_erode_prob=0.9, positive_erode_iters=3,
                  negative_bg_prob=0.1, negative_other_prob=0.4, negative_border_prob=0.5,
                  merge_objects_prob=0.0, max_num_merged_objects=2,
-                 use_hierarchy=False, soft_targets=False,
-                 first_click_center=False, only_one_first_click=False,
+                 use_hierarchy=False, first_click_center=False, only_one_first_click=False,
                  sfc_inner_k=1.7, sfc_full_inner_prob=0.0):
         super().__init__()
         self.max_num_points = max_num_points
@@ -42,7 +41,6 @@ class MultiPointSampler(BasePointSampler):
         self.positive_erode_iters = positive_erode_iters
         self.merge_objects_prob = merge_objects_prob
         self.use_hierarchy = use_hierarchy
-        self.soft_targets = soft_targets
         self.first_click_center = first_click_center
         self.only_one_first_click = only_one_first_click
         self.sfc_inner_k = sfc_inner_k
@@ -70,7 +68,7 @@ class MultiPointSampler(BasePointSampler):
             return
 
         gt_mask, pos_masks, neg_masks = self._sample_mask(sample)
-        binary_gt_mask = gt_mask > 0.5 if self.soft_targets else gt_mask > 0
+        binary_gt_mask = gt_mask > 0
 
         self.selected_mask = gt_mask
         self._selected_masks = pos_masks
@@ -123,7 +121,7 @@ class MultiPointSampler(BasePointSampler):
 
         if not self.use_hierarchy:
             node_mask = sample.get_object_mask(obj_id)
-            gt_mask = sample.get_soft_object_mask(obj_id) if self.soft_targets else node_mask
+            gt_mask = node_mask
             return gt_mask, [node_mask], []
 
         def _select_node(node_id):
@@ -135,7 +133,7 @@ class MultiPointSampler(BasePointSampler):
         selected_node = _select_node(obj_id)
         node_info = objs_tree[selected_node]
         node_mask = sample.get_object_mask(selected_node)
-        gt_mask = sample.get_soft_object_mask(selected_node) if self.soft_targets else node_mask
+        gt_mask = node_mask
         pos_mask = node_mask.copy()
 
         negative_segments = []
@@ -156,11 +154,7 @@ class MultiPointSampler(BasePointSampler):
             for child_id in disabled_children:
                 child_mask = sample.get_object_mask(child_id)
                 pos_mask = np.logical_and(pos_mask, np.logical_not(child_mask))
-                if self.soft_targets:
-                    soft_child_mask = sample.get_soft_object_mask(child_id)
-                    gt_mask = np.minimum(gt_mask, 1.0 - soft_child_mask)
-                else:
-                    gt_mask = np.logical_and(gt_mask, np.logical_not(child_mask))
+                gt_mask = np.logical_and(gt_mask, np.logical_not(child_mask))
                 negative_segments.append(child_mask)
 
         return gt_mask, [pos_mask], negative_segments
