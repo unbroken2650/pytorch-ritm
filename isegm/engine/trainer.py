@@ -11,15 +11,17 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from isegm.utils.log import logger, TqdmToLogger, SummaryWriterAvg
-from isegm.utils.vis import draw_probmap, draw_points
+from isegm.utils.vis import draw_probmap, draw_points, visualize_mask
 from isegm.utils.misc import save_checkpoint
 from isegm.utils.serialization import get_config_repr
 from isegm.utils.distributed import get_sampler, reduce_loss_dict
 from .optimizer import get_optimizer
+from torch.utils.tensorboard import SummaryWriter
+from torchvision.utils import make_grid
 
 
 def custom_collate_fn(batch):
-    batch_images = [torch.tensor(item['images'], dtype=torch.float32) for item in batch]
+    batch_images = [torch.tensor(torch.tensor(item['images']), dtype=torch.float32) for item in batch]
     batch_instances = [torch.tensor(item['instances'], dtype=torch.float32) for item in batch]
     batch_points = [torch.tensor(item['points'], dtype=torch.float32) for item in batch]
 
@@ -61,6 +63,8 @@ class ISTrainer(object):
         self.image_dump_interval = image_dump_interval
         self.task_prefix = ''
         self.sw = None
+
+        self.tb_writer = SummaryWriter(log_dir=str(self.cfg.LOGS_PATH))
 
         self.trainset = trainset
         self.valset = valset
@@ -142,6 +146,7 @@ class ISTrainer(object):
 
             for loss_name, loss_value in losses_logging.items():
                 self.sw.add_scalar(f'{log_prefix}Losses/{loss_name}', loss_value.item(), epoch)
+                self.tb_writer.add_scalar(f'{log_prefix}/Losses/{loss_name}', loss_value.item(), epoch * len(tbar) + i)
 
             if not image_saved and self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
                 self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
@@ -194,6 +199,8 @@ class ISTrainer(object):
         for loss_name, loss_values in losses_logging.items():
             self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}', value=np.array(loss_values).mean(),
                                global_step=epoch, disable_avg=True)
+            # TensorBoard에 기록
+            self.tb_writer.add_scalar(f'{log_prefix}/Losses/{loss_name}', np.array(loss_values).mean(), epoch)
 
         for metric in self.val_metrics:
             self.sw.add_scalar(tag=f'{log_prefix}Metrics/{metric.name}', value=metric.get_epoch_value(),
@@ -296,10 +303,22 @@ class ISTrainer(object):
         image_with_points = draw_points(image, points[:self.max_interactive_points], (0, 255, 0))
         image_with_points = draw_points(image_with_points, points[self.max_interactive_points:], (0, 0, 255))
 
-        gt_mask[gt_mask < 0] = 0.25
+        gt_mask[gt_mask < 0] = 0
         gt_mask = draw_probmap(gt_mask)
+        predicted_mask = predicted_mask.astype(int)
         predicted_mask = draw_probmap(predicted_mask)
         viz_image = np.hstack((image_with_points, gt_mask, predicted_mask)).astype(np.uint8)
+
+        # Convert viz_image to a tensor and normalize
+        viz_image_tensor = torch.tensor(viz_image, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
+        viz_image_tensor = (viz_image_tensor - viz_image_tensor.min()) / \
+            (viz_image_tensor.max() - viz_image_tensor.min())
+
+        # Use make_grid to ensure the tensor is in the correct format
+        grid = make_grid(viz_image_tensor, nrow=1, normalize=True, scale_each=True)
+
+        # Add the image to TensorBoard
+        self.tb_writer.add_image('Training Progress', grid, global_step)
 
         _save_image('instance_segmentation', viz_image[:, :, ::-1])
 

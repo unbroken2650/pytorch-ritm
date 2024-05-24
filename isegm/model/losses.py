@@ -28,6 +28,7 @@ class NormalizedFocalLossSigmoid(nn.Module):
         self._m_max = 0
 
     def forward(self, pred, label):
+        label = label / 255
         one_hot = label > 0.5
         sample_weight = label != self._ignore_label
 
@@ -36,7 +37,6 @@ class NormalizedFocalLossSigmoid(nn.Module):
 
         alpha = torch.where(one_hot, self._alpha * sample_weight, (1 - self._alpha) * sample_weight)
         pt = torch.where(sample_weight, 1.0 - torch.abs(label - pred), torch.ones_like(pred))
-
         beta = (1 - pt) ** self._gamma
 
         sw_sum = torch.sum(sample_weight, dim=(-2, -1), keepdim=True)
@@ -68,6 +68,11 @@ class NormalizedFocalLossSigmoid(nn.Module):
             loss = torch.sum(loss, dim=misc.get_dims_with_exclusion(loss.dim(), self._batch_axis))
 
         return loss
+
+    def check_nan(self, loss):
+        nan_mask = torch.isnan(loss)
+        nan_indices = torch.nonzero(nan_mask)
+        print("NaN Indices:", nan_indices)
 
     def log_states(self, sw, name, global_step):
         sw.add_scalar(tag=name + '_k', value=self._k_sum, global_step=global_step)
@@ -146,6 +151,7 @@ class SigmoidBinaryCrossEntropyLoss(nn.Module):
         self._batch_axis = batch_axis
 
     def forward(self, pred, label):
+        label = label / 255
         label = label.view(pred.size())
         sample_weight = label != self._ignore_label
         label = torch.where(sample_weight, label, torch.zeros_like(label))

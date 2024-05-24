@@ -42,7 +42,7 @@ def get_palette(num_cls):
 
 def visualize_mask(mask, num_cls):
     palette = get_palette(num_cls)
-    mask[mask == -1] = 0
+    mask[mask <= 0] = 0
 
     return palette[mask].astype(np.uint8)
 
@@ -78,7 +78,7 @@ def draw_points(image, points, color, radius=3):
 
 
 def draw_instance_map(x, palette=None):
-    num_colors = x.max() + 1
+    num_colors = int(x.max()) + 1
     if palette is None:
         palette = get_palette(num_colors)
 
