@@ -36,7 +36,7 @@ def custom_collate_fn(batch):
 class ISTrainer(object):
     def __init__(self, model, cfg, model_cfg, loss_cfg,
                  trainset, valset, optimizer='adam',
-                 optimizer_params=None, image_dump_interval=20, checkpoint_interval=10,
+                 optimizer_params=None, image_dump_interval=2, checkpoint_interval=10,
                  tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
                  metrics=None, additional_val_metrics=None, net_inputs=('images', 'points'),
                  max_num_next_clicks=0, click_models=None, prev_mask_drop_prob=0.0,):
@@ -214,7 +214,6 @@ class ISTrainer(object):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
             image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
-            self.save_visualization(batch_data, {'instances': gt_mask}, 999, prefix='train')
 
             prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
 
@@ -231,7 +230,7 @@ class ISTrainer(object):
 
                     eval_model = self.net
 
-                    net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
+                    net_input = torch.cat((image, prev_output), dim=1)
                     prev_output = torch.sigmoid(eval_model(net_input, points)['instances'])
 
                     points = get_next_points(prev_output, orig_gt_mask, points, click_indx + 1)
@@ -239,13 +238,13 @@ class ISTrainer(object):
                     if not validation:
                         self.net.train()
 
-                if self.net.with_prev_mask and self.prev_mask_drop_prob > 0 and last_click_indx is not None:
+                if self.prev_mask_drop_prob > 0 and last_click_indx is not None:
                     zero_mask = np.random.random(size=prev_output.size(0)) < self.prev_mask_drop_prob
                     prev_output[zero_mask] = torch.zeros_like(prev_output[zero_mask])
 
             batch_data['points'] = points
 
-            net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
+            net_input = torch.cat((image, prev_output), dim=1)
             output = self.net(net_input, points)
 
             loss = 0.0
@@ -305,19 +304,20 @@ class ISTrainer(object):
 
         gt_mask[gt_mask < 0] = 0
         gt_mask = draw_probmap(gt_mask)
-        predicted_mask = predicted_mask.astype(int)
-        predicted_mask = draw_probmap(predicted_mask)
+
+        if predicted_mask.ndim == 3 and predicted_mask.shape[0] == 1:
+            predicted_mask = predicted_mask.squeeze(0)
+
+        predicted_mask = (predicted_mask * 255).astype(np.uint8)
+        predicted_mask = np.stack([predicted_mask] * 3, axis=-1)
         viz_image = np.hstack((image_with_points, gt_mask, predicted_mask)).astype(np.uint8)
 
-        # Convert viz_image to a tensor and normalize
         viz_image_tensor = torch.tensor(viz_image, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
         viz_image_tensor = (viz_image_tensor - viz_image_tensor.min()) / \
             (viz_image_tensor.max() - viz_image_tensor.min())
 
-        # Use make_grid to ensure the tensor is in the correct format
         grid = make_grid(viz_image_tensor, nrow=1, normalize=True, scale_each=True)
 
-        # Add the image to TensorBoard
         self.tb_writer.add_image('Training Progress', grid, global_step)
 
         _save_image('instance_segmentation', viz_image[:, :, ::-1])
@@ -343,6 +343,7 @@ def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):
     assert click_indx > 0
     pred = pred.cpu().numpy()[:, 0, :, :]
     gt = gt.cpu().numpy()
+    pred_thresh = (pred.max() - pred.min())/10 + pred.min()
 
     fn_mask = np.logical_and(gt, pred < pred_thresh)
     fp_mask = np.logical_and(np.logical_not(gt), pred > pred_thresh)
