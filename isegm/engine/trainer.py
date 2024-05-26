@@ -8,33 +8,20 @@ import cv2
 import torch
 import numpy as np
 from tqdm import tqdm
-from torch.utils.data import DataLoader
-from torch.nn.utils.rnn import pad_sequence
 from isegm.utils.log import logger, TqdmToLogger, SummaryWriterAvg
 from isegm.utils.vis import draw_probmap, draw_points, visualize_mask
 from isegm.utils.misc import save_checkpoint
 from isegm.utils.serialization import get_config_repr
 from isegm.utils.distributed import get_sampler, reduce_loss_dict
 from .optimizer import get_optimizer
+from torch.utils.data import DataLoader
+from torch.utils.data import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
 
 
-def custom_collate_fn(batch):
-    batch_images = [torch.tensor(torch.tensor(item['images']), dtype=torch.float32) for item in batch]
-    batch_instances = [torch.tensor(item['instances'], dtype=torch.float32) for item in batch]
-    batch_points = [torch.tensor(item['points'], dtype=torch.float32) for item in batch]
-
-    batch_images = torch.stack(batch_images, dim=0)
-    batch_instances = torch.stack(batch_instances, dim=0)
-
-    batch_points = pad_sequence(batch_points, batch_first=True, padding_value=0)
-
-    return {'images': batch_images, 'instances': batch_instances, 'points': batch_points}
-
-
 class ISTrainer(object):
-    def __init__(self, model, cfg, model_cfg, loss_cfg,
+    def __init__(self, model, cfg, model_cfg,  loss_cfg,
                  trainset, valset, optimizer='adam',
                  optimizer_params=None, image_dump_interval=20, checkpoint_interval=10,
                  tb_dump_period=25, max_interactive_points=0, lr_scheduler=None,
@@ -72,13 +59,22 @@ class ISTrainer(object):
         logger.info(f'Dataset of {trainset.get_samples_number()} samples is loaded for training.')
         logger.info(f'Dataset of {valset.get_samples_number()} samples is loaded for validation.')
 
-        self.train_data = DataLoader(
-            trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate_fn)
+        num_train_samples = 20000
+        num_val_samples = 1000
+        train_indices = np.random.choice(len(trainset), num_train_samples, replace=False)
+        val_indices = np.random.choice(len(valset), num_val_samples, replace=False)
 
-        self.val_data = DataLoader(
-            valset, cfg.batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed),
-            drop_last=True, pin_memory=True, num_workers=cfg.workers, collate_fn=custom_collate_fn)
+        train_sampler = SubsetRandomSampler(train_indices)
+        val_sampler = SubsetRandomSampler(val_indices)
+
+        self.train_data = DataLoader(trainset, cfg.batch_size, sampler=train_sampler,
+                                     drop_last=True, pin_memory=True, num_workers=cfg.workers)
+        self.val_data = DataLoader(valset, cfg.batch_size, sampler=val_sampler,
+                                   drop_last=True, pin_memory=True, num_workers=cfg.workers)
+
+        # self.train_data = DataLoader(trainset, cfg.batch_size, sampler=get_sampler(trainset, shuffle=True, distributed=cfg.distributed), drop_last=True, pin_memory=True, num_workers=cfg.workers)
+
+        # self.val_data = DataLoader(valset, cfg.batch_size, sampler=get_sampler(valset, shuffle=False, distributed=cfg.distributed), drop_last=True, pin_memory=True, num_workers=cfg.workers)
 
         self.optim = get_optimizer(model, optimizer, optimizer_params)
         model = self._load_weights(model)
@@ -145,18 +141,22 @@ class ISTrainer(object):
             train_loss += losses_logging['overall'].item()
 
             for loss_name, loss_value in losses_logging.items():
-                self.sw.add_scalar(f'{log_prefix}Losses/{loss_name}', loss_value.item(), epoch)
-                self.tb_writer.add_scalar(f'{log_prefix}/Losses/{loss_name}', loss_value.item(), epoch * len(tbar) + i)
+                self.sw.add_scalar(
+                    f'{log_prefix}Losses/{loss_name}', loss_value.item(), epoch)
+                self.tb_writer.add_scalar(
+                    f'{log_prefix}/Losses/{loss_name}', loss_value.item(), epoch * len(tbar) + i)
 
             if not image_saved and self.image_dump_interval > 0 and epoch % self.image_dump_interval == 0:
-                self.save_visualization(splitted_batch_data, outputs, epoch, prefix='train')
+                self.save_visualization(
+                    splitted_batch_data, outputs, epoch, prefix='train')
                 image_saved = True
 
             tbar.set_description(
                 f'Epoch {epoch}, Batch {i+1}/{len(self.train_data)}, Current Loss: {train_loss/(i+1):.4f}')
 
         for metric in self.train_metrics:
-            metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
+            metric.log_states(
+                self.sw, f'{log_prefix}Metrics/{metric.name}', epoch)
 
         if epoch % 20 == 0:
             save_checkpoint(self.net, self.cfg.CHECKPOINTS_PATH, prefix=self.task_prefix,
@@ -192,15 +192,18 @@ class ISTrainer(object):
 
             val_loss += batch_losses_logging['overall'].item()
 
-            tbar.set_description(f'Epoch {epoch}, validation loss: {val_loss/(i + 1):.4f}')
+            tbar.set_description(
+                f'Epoch {epoch}, validation loss: {val_loss/(i + 1):.4f}')
             for metric in self.val_metrics:
-                metric.log_states(self.sw, f'{log_prefix}Metrics/{metric.name}', global_step)
+                metric.log_states(
+                    self.sw, f'{log_prefix}Metrics/{metric.name}', global_step)
 
         for loss_name, loss_values in losses_logging.items():
             self.sw.add_scalar(tag=f'{log_prefix}Losses/{loss_name}', value=np.array(loss_values).mean(),
                                global_step=epoch, disable_avg=True)
             # TensorBoard에 기록
-            self.tb_writer.add_scalar(f'{log_prefix}/Losses/{loss_name}', np.array(loss_values).mean(), epoch)
+            self.tb_writer.add_scalar(
+                f'{log_prefix}/Losses/{loss_name}', np.array(loss_values).mean(), epoch)
 
         for metric in self.val_metrics:
             self.sw.add_scalar(tag=f'{log_prefix}Metrics/{metric.name}', value=metric.get_epoch_value(),
@@ -214,9 +217,11 @@ class ISTrainer(object):
             batch_data = {k: v.to(self.device) for k, v in batch_data.items()}
             image, gt_mask, points = batch_data['images'], batch_data['instances'], batch_data['points']
             orig_image, orig_gt_mask, orig_points = image.clone(), gt_mask.clone(), points.clone()
-            self.save_visualization(batch_data, {'instances': gt_mask}, 999, prefix='train')
+            image = image.permute(0, 3, 1, 2).float()
+            self.save_visualization(
+                batch_data, {'instances': gt_mask}, 999, prefix='train')
 
-            prev_output = torch.zeros_like(image, dtype=torch.float32)[:, :, :]
+            prev_output = torch.zeros_like(image, dtype=torch.float32)
 
             last_click_indx = None
 
@@ -232,20 +237,25 @@ class ISTrainer(object):
                     eval_model = self.net
 
                     net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
-                    prev_output = torch.sigmoid(eval_model(net_input, points)['instances'])
+                    prev_output = torch.sigmoid(
+                        eval_model(net_input, points)['instances'])
 
-                    points = get_next_points(prev_output, orig_gt_mask, points, click_indx + 1)
+                    points = get_next_points(
+                        prev_output, orig_gt_mask, points, click_indx + 1)
 
                     if not validation:
                         self.net.train()
 
                 if self.net.with_prev_mask and self.prev_mask_drop_prob > 0 and last_click_indx is not None:
-                    zero_mask = np.random.random(size=prev_output.size(0)) < self.prev_mask_drop_prob
-                    prev_output[zero_mask] = torch.zeros_like(prev_output[zero_mask])
+                    zero_mask = np.random.random(
+                        size=prev_output.size(0)) < self.prev_mask_drop_prob
+                    prev_output[zero_mask] = torch.zeros_like(
+                        prev_output[zero_mask])
 
             batch_data['points'] = points
 
-            net_input = torch.cat((image, prev_output), dim=1) if self.net.with_prev_mask else image
+            net_input = torch.cat((image, prev_output),
+                                  dim=1) if self.net.with_prev_mask else image
             output = self.net(net_input, points)
 
             loss = 0.0
@@ -256,7 +266,8 @@ class ISTrainer(object):
 
             with torch.no_grad():
                 for m in metrics:
-                    m.update(*(output.get(x) for x in m.pred_outputs), *(batch_data[x] for x in m.gt_outputs))
+                    m.update(*(output.get(x) for x in m.pred_outputs),
+                             *(batch_data[x] for x in m.gt_outputs))
         return loss, losses_logging, batch_data, output
 
     def add_loss(self, loss_name, total_loss, losses_logging, validation, lambda_loss_inputs):
@@ -290,7 +301,8 @@ class ISTrainer(object):
         instance_masks = splitted_batch_data['instances']
 
         gt_instance_masks = instance_masks.cpu().numpy()
-        predicted_instance_masks = torch.sigmoid(outputs['instances']).detach().cpu().numpy()
+        predicted_instance_masks = torch.sigmoid(
+            outputs['instances']).detach().cpu().numpy()
         points = points.detach().cpu().numpy()
 
         image_blob, points = images[0], points[0]
@@ -298,26 +310,29 @@ class ISTrainer(object):
         gt_mask = gt_instance_masks[0]
         predicted_mask = predicted_instance_masks[0]
         image = image_blob.cpu().numpy()
-        image = image.transpose(1, 2, 0)
+        image = image.transpose(2, 0, 1)
 
-        image_with_points = draw_points(image, points[:self.max_interactive_points], (0, 255, 0))
+        image_with_points = draw_points(image.transpose(1, 2, 0), points[:self.max_interactive_points], (0, 255, 0))
         image_with_points = draw_points(image_with_points, points[self.max_interactive_points:], (0, 0, 255))
 
         gt_mask[gt_mask < 0] = 0
         gt_mask = draw_probmap(gt_mask)
         predicted_mask = predicted_mask.astype(int)
         predicted_mask = draw_probmap(predicted_mask)
+
+        height = image_with_points.shape[0]
+        gt_mask = cv2.resize(gt_mask, (image_with_points.shape[1], height), interpolation=cv2.INTER_NEAREST)
+        predicted_mask = cv2.resize(
+            predicted_mask, (image_with_points.shape[1], height), interpolation=cv2.INTER_NEAREST)
+
         viz_image = np.hstack((image_with_points, gt_mask, predicted_mask)).astype(np.uint8)
 
-        # Convert viz_image to a tensor and normalize
         viz_image_tensor = torch.tensor(viz_image, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
         viz_image_tensor = (viz_image_tensor - viz_image_tensor.min()) / \
             (viz_image_tensor.max() - viz_image_tensor.min())
 
-        # Use make_grid to ensure the tensor is in the correct format
         grid = make_grid(viz_image_tensor, nrow=1, normalize=True, scale_each=True)
 
-        # Add the image to TensorBoard
         self.tb_writer.add_image('Training Progress', grid, global_step)
 
         _save_image('instance_segmentation', viz_image[:, :, ::-1])
@@ -371,8 +386,10 @@ def get_next_points(pred, gt, points, click_indx, pred_thresh=0.49):
                 points[bindx, num_points - click_indx, 1] = float(coords[1])
                 # points[bindx, num_points - click_indx, 2] = float(click_indx)
             else:
-                points[bindx, 2 * num_points - click_indx, 0] = float(coords[0])
-                points[bindx, 2 * num_points - click_indx, 1] = float(coords[1])
+                points[bindx, 2 * num_points -
+                       click_indx, 0] = float(coords[0])
+                points[bindx, 2 * num_points -
+                       click_indx, 1] = float(coords[1])
                 # points[bindx, 2 * num_points - click_indx, 2] = float(click_indx)
 
     return points

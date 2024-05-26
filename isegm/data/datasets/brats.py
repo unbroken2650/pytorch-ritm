@@ -4,14 +4,11 @@ from pathlib import Path
 from tqdm import tqdm
 import random
 import cv2
-import math
 import pickle
 import numpy as np
 import torch
 from ..points_sampler import MultiPointSampler
 from pathlib import Path
-from isegm.data.transforms import remove_image_only_transforms
-from albumentations import ReplayCompose
 
 
 class BraTSDataset(torch.utils.data.Dataset):

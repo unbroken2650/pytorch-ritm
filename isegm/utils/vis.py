@@ -13,7 +13,8 @@ def visualize_instances(imask, bg_color=255,
 
     result = palette[imask].astype(np.uint8)
     if boundaries_color is not None:
-        boundaries_mask = get_boundaries(imask, boundaries_width=boundaries_width)
+        boundaries_mask = get_boundaries(
+            imask, boundaries_width=boundaries_width)
         tresult = result.astype(np.float32)
         tresult[boundaries_mask] = boundaries_color
         tresult = tresult * boundaries_alpha + (1 - boundaries_alpha) * result
@@ -52,7 +53,8 @@ def visualize_proposals(proposals_info, point_color=(255, 0, 0), point_radius=1)
 
     proposal_map = draw_probmap(proposal_map)
     for x, y in candidates:
-        proposal_map = cv2.circle(proposal_map, (y, x), point_radius, point_color, -1)
+        proposal_map = cv2.circle(
+            proposal_map, (y, x), point_radius, point_color, -1)
 
     return proposal_map
 
@@ -64,6 +66,14 @@ def draw_probmap(x):
 
 
 def draw_points(image, points, color, radius=3):
+    # Ensure the image has 3 channels
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.shape[2] == 1:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.shape[2] > 3:
+        image = image[:, :, :3]
+
     image = image.copy().astype(np.uint8)
     for p in points:
         if p[0] < 0:
@@ -95,7 +105,8 @@ def blend_mask(image, mask, alpha=0.6):
 
 
 def get_boundaries(instances_masks, boundaries_width=1):
-    boundaries = np.zeros((instances_masks.shape[0], instances_masks.shape[1]), dtype=np.bool)
+    boundaries = np.zeros(
+        (instances_masks.shape[0], instances_masks.shape[1]), dtype=np.bool)
 
     for obj_id in np.unique(instances_masks.flatten()):
         if obj_id == 0:
@@ -103,9 +114,11 @@ def get_boundaries(instances_masks, boundaries_width=1):
 
         obj_mask = instances_masks == obj_id
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        inner_mask = cv2.erode(obj_mask.astype(np.uint8), kernel, iterations=boundaries_width).astype(np.bool)
+        inner_mask = cv2.erode(obj_mask.astype(
+            np.uint8), kernel, iterations=boundaries_width).astype(np.bool)
 
-        obj_boundary = np.logical_xor(obj_mask, np.logical_and(inner_mask, obj_mask))
+        obj_boundary = np.logical_xor(
+            obj_mask, np.logical_and(inner_mask, obj_mask))
         boundaries = np.logical_or(boundaries, obj_boundary)
     return boundaries
 
@@ -118,11 +131,14 @@ def draw_with_blend_and_clicks(img, mask=None, alpha=0.6, clicks_list=None, pos_
         rgb_mask = palette[mask.astype(np.uint8)]
 
         mask_region = (rgb_mask > 0).astype(np.uint8)
-        result = (result * (1 - alpha) + alpha * rgb_mask * mask_region).astype(np.uint8)
+        result = (result * (1 - alpha) + alpha *
+                  rgb_mask * mask_region).astype(np.uint8)
 
     if clicks_list is not None and len(clicks_list) > 0:
-        pos_points = [click.coords for click in clicks_list if click.is_positive]
-        neg_points = [click.coords for click in clicks_list if not click.is_positive]
+        pos_points = [
+            click.coords for click in clicks_list if click.is_positive]
+        neg_points = [
+            click.coords for click in clicks_list if not click.is_positive]
 
         result = draw_points(result, pos_points, pos_color, radius=radius)
         result = draw_points(result, neg_points, neg_color, radius=radius)
